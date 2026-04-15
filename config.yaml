@@ -13,7 +13,7 @@ polymarket:
 # Bot settings
 bot:
   mode: "paper"            # "paper" (simulated) or "live" (real money) — STARTS IN PAPER MODE
-  scan_interval_seconds: 15
+  scan_interval_seconds: 150        # Scan every 2.5 minutes
   assets:                  # Which crypto assets to trade
     - "Bitcoin"
     - "Ethereum"
@@ -26,27 +26,27 @@ bot:
 
 # Risk management
 risk:
-  max_position_size_usd: 25.0       # Max single position
-  max_total_exposure_usd: 200.0     # Max total capital deployed
-  max_daily_loss_usd: 50.0          # Daily loss limit — bot stops if hit
-  max_open_positions: 10            # Max simultaneous positions
-  min_ev_threshold: 0.02            # Minimum EV gap to enter (2% — lower for HFT)
-  min_kelly_fraction: 0.01          # Minimum Kelly fraction to act on
+  max_position_size_usd: 250.0      # Fixed paper trade size
+  max_total_exposure_usd: 1500.0    # Max total capital deployed
+  max_daily_loss_usd: 300.0         # Daily loss limit — bot stops if hit
+  max_open_positions: 5             # Max simultaneous positions
+  min_ev_threshold: 0.005           # Minimum net EV to enter (0.5% — allows most signals through)
+  min_kelly_fraction: 0.001         # Minimum Kelly fraction to act on
   max_kelly_fraction: 0.20          # Cap Kelly at 20%
-  max_correlated_positions: 3       # Max same-asset same-direction positions (prevents stacking identical bets)
+  max_correlated_positions: 2       # Max same-asset same-direction positions
 
 # Exit management (position management thresholds)
 exits:
-  take_profit_pct: 0.03             # HFT: take profit at +3%
-  stop_loss_pct: 0.03               # HFT: stop loss at -3%
+  take_profit_pct: 0.04             # Take profit at +4%
+  stop_loss_pct: 0.02               # Stop loss at -2%
   trailing_stop_pct: 0.02           # Trail by 2% from peak once in profit
-  # Max hold times per timeframe (minutes) — HFT: scalp and exit fast
+  # Max hold times per timeframe (minutes)
   max_hold_minutes:
     5min: 4
-    15min: 8
-    1h: 10
-    4h: 10
-    daily: 10
+    15min: 12
+    1h: 45
+    4h: 120
+    daily: 480
 
 # Logging
 logging:

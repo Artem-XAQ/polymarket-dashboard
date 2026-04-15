@@ -472,8 +472,9 @@ class TradingBot:
         }.get(reason, "📤")
 
         db.log_bot_event("TRADE",
-                         f"{reason_emoji} {reason}: {pnl_sign}${abs(pnl):.2f} ({pnl_pct:+.1f}%) | "
+                         f"📤 EXIT {reason_emoji} {reason}: {pnl_sign}${abs(pnl):.2f} ({pnl_pct:+.1f}%) | "
                          f"{pos['outcome']} @ {entry:.2%} → {sell_price:.2%}",
+                         f"Why closed: {reason} | "
                          f"{pos.get('market_question', '')[:60]} | "
                          f"Shares: {pos['shares']:.1f}")
 
@@ -482,12 +483,12 @@ class TradingBot:
 
     def _scan_and_trade(self):
         """Single scan cycle: find markets, analyze, trade."""
-        db.log_bot_event("DEBUG", f"Scanning for {'/'.join(self.assets)} Up or Down markets...")
+        db.log_bot_event("INFO", f"Scanning for {'/'.join(self.assets)} Up or Down markets...")
 
         # Use the events endpoint which correctly returns short-duration markets
         all_markets = api.get_updown_crypto_markets(asset_keywords=self.assets)
         if not all_markets:
-            db.log_bot_event("DEBUG", "No Up or Down markets returned from API")
+            db.log_bot_event("WARNING", "No Up or Down markets returned from API — check connection")
             return
 
         # Filter to configured timeframes, skip resolved markets,
@@ -537,13 +538,13 @@ class TradingBot:
             if soonest_mins is not None:
                 hours = int(soonest_mins // 60)
                 mins = int(soonest_mins % 60)
-                db.log_bot_event("DEBUG",
-                                 f"No markets expiring soon — nearest resolves in {hours}h {mins}m "
-                                 f"(API returned {len(all_markets)} Up or Down markets)")
+                db.log_bot_event("INFO",
+                                 f"No markets in window yet — nearest resolves in {hours}h {mins}m "
+                                 f"(API: {len(all_markets)} Up or Down markets found)")
             else:
-                db.log_bot_event("DEBUG",
-                                 f"No active markets for timeframes {self.timeframes} "
-                                 f"(API returned {len(all_markets)} Up or Down markets)")
+                db.log_bot_event("INFO",
+                                 f"No active markets match timeframes {self.timeframes} "
+                                 f"(API: {len(all_markets)} Up or Down markets found)")
             return
 
         tf_counts = {}
@@ -556,11 +557,15 @@ class TradingBot:
 
         # Analyze each matched market
         opportunities = []
+        skipped_pass = []
         for market in matched_markets:
             try:
                 result = self._analyze_5min_market(market)
-                if result and result["signal"] in ("STRONG BUY", "STRONG FADE", "BUY", "FADE"):
-                    opportunities.append(result)
+                if result:
+                    if result["signal"] in ("STRONG BUY", "STRONG FADE", "BUY", "FADE", "CONDITIONAL"):
+                        opportunities.append(result)
+                    else:
+                        skipped_pass.append(result)
             except Exception as e:
                 logger.debug(f"Error analyzing market: {e}")
                 continue
@@ -572,6 +577,11 @@ class TradingBot:
             db.log_bot_event("INFO",
                              f"Found {len(opportunities)} trade opportunities",
                              str([f"{o['asset']} {o['signal']} EV:{o['ev_gap']:.3f}" for o in opportunities[:5]]))
+        elif skipped_pass:
+            db.log_bot_event("INFO",
+                             f"Analyzed {len(skipped_pass)} markets — all PASS (no edge detected)",
+                             str([f"{o['asset']} model={o['model_prob']:.2f} mkt={o['market_price']:.2f}"
+                                  for o in skipped_pass[:3]]))
 
         # Execute top opportunities — with correlation limit.
         # Don't stack more than max_correlated same-asset, same-direction positions
@@ -810,16 +820,15 @@ class TradingBot:
             return None
 
     def _try_execute(self, opportunity: dict):
-        """Try to execute a trade opportunity after risk checks."""
-        amount_usd = min(opportunity["position_size"],
-                         self.risk.limits.max_position_size_usd)
+        """Try to execute a trade opportunity after risk checks.
 
-        # Cap Kelly
+        Position size is fixed (max_position_size_usd from config).
+        Kelly fraction drives direction confidence and risk gate, not sizing —
+        this ensures paper trades fire at the configured $250 amount.
+        """
+        # Fixed position size — don't scale by Kelly (would make trades too small)
+        amount_usd = self.risk.limits.max_position_size_usd
         kelly = self.risk.cap_kelly(opportunity["kelly_fraction"])
-        amount_usd = min(amount_usd, self.risk.limits.max_total_exposure_usd * kelly)
-
-        if amount_usd < 1.0:
-            return  # Too small
 
         # Risk check
         allowed, reason = self.risk.check_trade(
@@ -830,8 +839,10 @@ class TradingBot:
         )
 
         if not allowed:
-            db.log_bot_event("INFO", f"Trade rejected: {reason}",
-                             f"{opportunity['asset']} | {opportunity['market_question'][:60]}")
+            db.log_bot_event("INFO", f"Trade blocked: {reason}",
+                             f"{opportunity['asset']} {opportunity['signal']} | "
+                             f"EV:{opportunity['ev_gap']:.3f} | "
+                             f"{opportunity['market_question'][:60]}")
             return
 
         # Execute
@@ -865,13 +876,16 @@ class TradingBot:
         if result.success:
             self._trade_count += 1
             db.set_bot_state("trade_count", str(self._trade_count))
+            direction = "UP" if side == "YES" else "DOWN"
             db.log_bot_event(
                 "TRADE",
-                f"{opportunity['asset']} {'UP' if side == 'YES' else 'DOWN'} — "
-                f"{result.shares:.2f} shares @ {result.fill_price:.4f} (${amount_usd:.2f})",
-                f"Market: {opportunity['market_question'][:60]} | "
-                f"EV: {opportunity['ev_gap']:.3f} | Kelly: {kelly:.3f} | "
-                f"Score: {opportunity['score']}/6",
+                f"📥 ENTER {opportunity['asset']} {direction} — "
+                f"{result.shares:.2f} shares @ {result.fill_price:.4f} (${amount_usd:.2f}) | "
+                f"Signal: {opportunity['signal']} ({opportunity['score']}/6)",
+                f"Why: model={opportunity['model_prob']:.2f} vs market={opportunity['market_price']:.2f} "
+                f"(edge={opportunity['model_prob'] - opportunity['market_price']:+.2f}) | "
+                f"EV:{opportunity['ev_gap']:.3f} | Kelly:{kelly:.3f} | "
+                f"TP@+4% SL@-2% | {opportunity['market_question'][:60]}",
             )
         else:
             db.log_bot_event("ERROR", f"Trade failed: {result.error}",
@@ -889,24 +903,24 @@ def load_config(config_path: str = "config.yaml") -> dict:
         return {
             "bot": {
                 "mode": "paper",
-                "scan_interval_seconds": 15,
+                "scan_interval_seconds": 150,
                 "assets": ["Bitcoin", "Ethereum"],
                 "timeframes": ["5min", "15min", "1h", "4h", "daily"],
             },
             "risk": {
-                "max_position_size_usd": 25.0,
-                "max_total_exposure_usd": 200.0,
-                "max_daily_loss_usd": 50.0,
-                "max_open_positions": 10,
-                "min_ev_threshold": 0.02,
-                "min_kelly_fraction": 0.005,
-                "max_kelly_fraction": 0.25,
-                "max_correlated_positions": 3,
+                "max_position_size_usd": 250.0,
+                "max_total_exposure_usd": 1500.0,
+                "max_daily_loss_usd": 300.0,
+                "max_open_positions": 5,
+                "min_ev_threshold": 0.005,
+                "min_kelly_fraction": 0.001,
+                "max_kelly_fraction": 0.20,
+                "max_correlated_positions": 2,
             },
             "exits": {
-                "take_profit_pct": 0.06,   # Sell when price up 6% from entry
-                "stop_loss_pct": 0.08,     # Cut loss when price down 8% from entry
-                "trailing_stop_pct": 0.04, # Trail by 4% from peak (once in profit)
+                "take_profit_pct": 0.04,
+                "stop_loss_pct": 0.02,
+                "trailing_stop_pct": 0.02,
             },
         }
 
