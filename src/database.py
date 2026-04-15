@@ -9,7 +9,22 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "dashboard.db")
+def _resolve_db_path() -> str:
+    """Return a writable path for the SQLite database.
+
+    Tries <project_root>/data/ first (works locally and on Streamlit Cloud),
+    then falls back to /tmp/ if the directory can't be created or written to.
+    """
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    data_dir = os.path.join(project_root, "data")
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        return os.path.join(data_dir, "dashboard.db")
+    except (OSError, PermissionError):
+        return "/tmp/dashboard.db"
+
+
+DB_PATH = _resolve_db_path()
 
 
 def get_connection() -> sqlite3.Connection:
