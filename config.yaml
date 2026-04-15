@@ -1,0 +1,55 @@
+# Polymarket Bot Configuration
+# Copy this to config.yaml and fill in your values
+
+# Polymarket CLOB API credentials
+# Get these from: https://clob.polymarket.com/auth/api-key
+polymarket:
+  private_key: ""          # Your Ethereum wallet private key (hex, with 0x prefix)
+  api_key: ""              # CLOB API key
+  api_secret: ""           # CLOB API secret
+  api_passphrase: ""       # CLOB API passphrase
+  chain_id: 137            # Polygon mainnet
+
+# Bot settings
+bot:
+  mode: "paper"            # "paper" (simulated) or "live" (real money) — STARTS IN PAPER MODE
+  scan_interval_seconds: 15
+  assets:                  # Which crypto assets to trade
+    - "Bitcoin"
+    - "Ethereum"
+  timeframes:              # All timeframes — HFT exits handle hold duration
+    - "5min"
+    - "15min"
+    - "1h"
+    - "4h"
+    - "daily"
+
+# Risk management
+risk:
+  max_position_size_usd: 25.0       # Max single position
+  max_total_exposure_usd: 200.0     # Max total capital deployed
+  max_daily_loss_usd: 50.0          # Daily loss limit — bot stops if hit
+  max_open_positions: 10            # Max simultaneous positions
+  min_ev_threshold: 0.02            # Minimum EV gap to enter (2% — lower for HFT)
+  min_kelly_fraction: 0.01          # Minimum Kelly fraction to act on
+  max_kelly_fraction: 0.20          # Cap Kelly at 20%
+  max_correlated_positions: 3       # Max same-asset same-direction positions (prevents stacking identical bets)
+
+# Exit management (position management thresholds)
+exits:
+  take_profit_pct: 0.03             # HFT: take profit at +3%
+  stop_loss_pct: 0.03               # HFT: stop loss at -3%
+  trailing_stop_pct: 0.02           # Trail by 2% from peak once in profit
+  # Max hold times per timeframe (minutes) — HFT: scalp and exit fast
+  max_hold_minutes:
+    5min: 4
+    15min: 8
+    1h: 10
+    4h: 10
+    daily: 10
+
+# Logging
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_file: "data/bot.log"

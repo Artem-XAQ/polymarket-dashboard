@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Streamlit Dashboard",
+      "runtimeExecutable": "streamlit",
+      "runtimeArgs": ["run", "streamlit_app.py"],
+      "port": 8501
+    },
+    {
+      "name": "Trading Bot (Paper)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["bot.py"],
+      "port": 0
+    }
+  ]
+}

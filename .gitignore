@@ -1,0 +1,26 @@
+# Runtime data
+data/
+*.db
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Secrets — never commit real credentials
+# If you add real keys to config.yaml, use Streamlit Secrets instead:
+# https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management
+# config.yaml  ← uncomment this line once you have real credentials
+
+# OS
+.DS_Store
+Thumbs.db
