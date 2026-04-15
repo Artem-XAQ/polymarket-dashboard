@@ -666,13 +666,15 @@ class TradingBot:
         if model_prob is None:
             return None
 
-        # Run full scorecard
+        # Run full scorecard — paper mode uses fee_rate=0 (no real fees),
+        # so even a small model edge registers as a tradeable opportunity.
+        fee_rate = 0.0 if self.mode == "paper" else 0.02
         scorecard = run_scorecard(
             model_prob=model_prob,
             market_price=market_price,
             bankroll=self.risk.limits.max_total_exposure_usd,
-            fee_rate=0.02,
-            volatility=0.10,  # Higher vol for 5-min markets
+            fee_rate=fee_rate,
+            volatility=0.10,
         )
 
         result = {
@@ -798,6 +800,8 @@ class TradingBot:
             # Volume surge amplifies momentum direction
             vol_amplifier = 1.0 + min(vol_surge, 1.0) * 0.3  # Up to 30% boost
 
+            binance_data_available = bool(candles_1m) or bool(candles_5m)
+
             # Weighted combination
             raw_signal = (
                 mom_1m_signal * 0.35 +    # Short-term momentum (strongest)
@@ -806,11 +810,20 @@ class TradingBot:
                 book_signal * 0.25        # Polymarket crowd wisdom
             ) * vol_amplifier
 
+            # Fallback: if Binance is unreachable or signals are essentially flat,
+            # use a mean-reversion signal off the market price. If the crowd has
+            # pushed the market away from 50/50, fade it slightly.
+            if not binance_data_available or abs(raw_signal) < 0.03:
+                mean_rev = (0.50 - current_price) * 0.6
+                raw_signal = mean_rev if not binance_data_available else (raw_signal + mean_rev) / 2
+                if not binance_data_available:
+                    db.log_bot_event("INFO",
+                                     f"Binance unavailable for {asset} — using mean-reversion signal "
+                                     f"({raw_signal:+.3f}) off market price {current_price:.2f}")
+
             # Convert signal to probability
-            # Aggressive scaling: even small crypto moves (0.1%) should create
-            # meaningful probability divergence since these are 5-min binary bets.
-            # Scale: 0 signal = 50%, ±0.3 signal = ~60%/40%, ±0.7 signal = ~70%/30%
-            model_prob = 0.50 + raw_signal * 0.30
+            # Scale: 0 = 50%, ±0.25 signal ≈ 60%/40%, ±0.60 signal ≈ 72%/28%
+            model_prob = 0.50 + raw_signal * 0.40
             model_prob = max(0.10, min(0.90, model_prob))
 
             return model_prob

@@ -29,10 +29,9 @@ class RiskManager:
 
     @property
     def is_killed(self) -> bool:
-        # Check persistent state too
+        # Always sync from DB so deactivation from the UI takes effect immediately
         state = db.get_bot_state("kill_switch")
-        if state == "true":
-            self._kill_switch = True
+        self._kill_switch = (state == "true")
         return self._kill_switch
 
     def activate_kill_switch(self, reason: str = "Manual"):
